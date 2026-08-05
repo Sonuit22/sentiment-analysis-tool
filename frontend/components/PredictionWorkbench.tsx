@@ -3,20 +3,20 @@
 import { AudioLines, Gauge, Sparkles, Timer, Waves } from "lucide-react";
 import { useState } from "react";
 import { predictAudio, predictSentiment } from "@/lib/api";
-import type { ModelName, Prediction } from "@/lib/types";
+import type { ModelId, Prediction } from "@/lib/types";
 import { ErrorState, LoadingState, Metric } from "./UI";
 
-const models: ModelName[] = [
-  "Improved Logistic Regression",
-  "Logistic Regression",
-  "Naive Bayes",
-  "SVM",
+const models: Array<{ id: ModelId; label: string }> = [
+  { id: "improved", label: "Improved Logistic Regression" },
+  { id: "logistic", label: "Logistic Regression" },
+  { id: "nb", label: "Naive Bayes" },
+  { id: "svm", label: "SVM" },
 ];
 
 export function PredictionWorkbench() {
   const [mode, setMode] = useState<"text" | "audio">("text");
   const [text, setText] = useState("The delivery was quick and the product quality was excellent.");
-  const [model, setModel] = useState<ModelName>("Improved Logistic Regression");
+  const [model, setModel] = useState<ModelId>("improved");
   const [audio, setAudio] = useState<File | null>(null);
   const [result, setResult] = useState<Prediction | null>(null);
   const [error, setError] = useState("");
@@ -52,8 +52,8 @@ export function PredictionWorkbench() {
             <>
               <div className="field">
                 <label htmlFor="model">Model</label>
-                <select id="model" className="select" value={model} onChange={(event) => setModel(event.target.value as ModelName)}>
-                  {models.map((name) => <option key={name}>{name}</option>)}
+                <select id="model" className="select" value={model} onChange={(event) => setModel(event.target.value as ModelId)}>
+                  {models.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                 </select>
               </div>
               <div className="field">

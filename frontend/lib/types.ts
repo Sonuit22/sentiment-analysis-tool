@@ -4,6 +4,8 @@ export type ModelName =
   | "Improved Logistic Regression"
   | "SVM";
 
+export type ModelId = "improved" | "logistic" | "nb" | "svm";
+
 export interface Prediction {
   sentiment: string;
   confidence: number | null;
