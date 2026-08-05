@@ -80,9 +80,15 @@ origins = [
     for value in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     if value.strip()
 ]
+origin_regex = os.getenv(
+    "ALLOWED_ORIGIN_REGEX",
+    r"https://(?:[a-z0-9-]+\.)*vercel\.app",
+).strip() or None
+logger.info("CORS origins=%s origin_regex=%s", origins, origin_regex)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=origin_regex,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],

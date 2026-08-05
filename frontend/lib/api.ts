@@ -11,10 +11,35 @@ export function toBackendModelName(model: ModelId | ModelName): ModelName {
   return BACKEND_MODEL_BY_ID[model as ModelId] ?? (model as ModelName);
 }
 
+function errorMessage(payload: unknown, status: number): string {
+  if (payload && typeof payload === "object") {
+    const record = payload as { detail?: unknown; message?: unknown };
+    if (typeof record.detail === "string") return record.detail;
+    if (Array.isArray(record.detail)) {
+      const details = record.detail.map((item) => {
+        if (!item || typeof item !== "object") return String(item);
+        const issue = item as { loc?: Array<string | number>; msg?: string };
+        const location = issue.loc?.join(".");
+        return [location, issue.msg].filter(Boolean).join(": ");
+      }).filter(Boolean);
+      if (details.length) return details.join("; ");
+    }
+    if (typeof record.message === "string") return record.message;
+  }
+  return `API request failed with HTTP ${status}.`;
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
-  const payload = await response.json().catch(() => ({}));
+  const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload.detail ?? "The request could not be completed.");
+    const message = errorMessage(payload, response.status);
+    console.error("[api-client] Request failed", {
+      url: response.url,
+      status: response.status,
+      message,
+      payload,
+    });
+    throw new Error(message);
   }
   return payload as T;
 }
@@ -41,6 +66,12 @@ export async function predictAudio(file: File): Promise<Prediction> {
 export async function fetchTraining(): Promise<TrainingPayload> {
   return parseResponse<TrainingPayload>(
     await fetch("/api/training-analysis", { cache: "no-store" }),
+  );
+}
+
+export async function fetchModelComparison(): Promise<TrainingPayload> {
+  return parseResponse<TrainingPayload>(
+    await fetch("/api/model-comparison", { cache: "no-store" }),
   );
 }
 

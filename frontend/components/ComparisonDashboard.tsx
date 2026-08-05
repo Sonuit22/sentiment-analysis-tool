@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchTraining } from "@/lib/api";
+import { fetchModelComparison } from "@/lib/api";
 import type { TrainingPayload } from "@/lib/types";
 import { ModelScores } from "./AnalyticsCharts";
 import { ErrorState, LoadingState, Metric } from "./UI";
@@ -10,7 +10,7 @@ import { Leaderboard } from "./TrainingDashboard";
 export function ComparisonDashboard() {
   const [data, setData] = useState<TrainingPayload | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => { fetchTraining().then(setData).catch((cause) => setError(cause.message)); }, []);
+  useEffect(() => { fetchModelComparison().then(setData).catch((cause) => setError(cause.message)); }, []);
   if (error) return <ErrorState message={error} />;
   if (!data) return <LoadingState label="Comparing model performance" />;
   const best = data.leaderboard[0];
