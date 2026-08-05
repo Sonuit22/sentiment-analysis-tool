@@ -1,0 +1,67 @@
+# Node.js and Next.js
+node_modules/
+.next/
+out/
+.vercel/
+frontend/.env.local
+frontend/.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Secrets and local Streamlit state
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+.streamlit/secrets.toml
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Operating system and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs, coverage, and temporary files
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Local model and media artifacts
+*.wav
+*.h5
+*.pkl
+*.joblib
+
+# Optional or training-only datasets
+data/*.csv
+data/*.json
+data/*.xls
+data/*.xlsx
+Tweets.csv
+sample_product_reviews.csv
+sentiment140.csv
+sentiment140_filtered.csv
+
+# Locally generated analysis images
+images/accuracy_comparison.png
+images/baseline_accuracy_chart.png
+images/confusion_matrix_twitter_improved_word_char.png
+images/f1_score_comparison.png
+images/sentiment_wordclouds.png
+images/training_time_comparison.png
