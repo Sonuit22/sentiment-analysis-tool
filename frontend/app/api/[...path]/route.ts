@@ -10,26 +10,9 @@ const LOG_BODY_LIMIT = 20_000;
 
 function backendApiUrl(configured: string | undefined): string {
   if (!configured) return DEFAULT_BACKEND_API_URL;
-  let url: URL;
-  try {
-    url = new URL(configured);
-  } catch (error) {
-    console.warn("[api-proxy] Ignoring invalid BACKEND_API_URL", {
-      configured,
-      fallback: DEFAULT_BACKEND_API_URL,
-      error: errorDetails(error),
-    });
-    return DEFAULT_BACKEND_API_URL;
-  }
-  if (!new Set(["http:", "https:"]).has(url.protocol)) {
-    console.warn("[api-proxy] Ignoring unsupported BACKEND_API_URL protocol", {
-      configured,
-      fallback: DEFAULT_BACKEND_API_URL,
-    });
-    return DEFAULT_BACKEND_API_URL;
-  }
+  const url = new URL(configured);
   const loopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (process.env.VERCEL === "1" && loopback) {
+  if (process.env.NODE_ENV === "production" && loopback) {
     console.warn("[api-proxy] Ignoring loopback BACKEND_API_URL in production", {
       configured,
       fallback: DEFAULT_BACKEND_API_URL,
@@ -63,27 +46,10 @@ function bounded(value: string): string {
 async function requestBodyForLog(body: ArrayBuffer | undefined, contentType: string | null) {
   if (!body) return null;
   if (contentType?.includes("application/json")) {
-    const decoded = new TextDecoder().decode(body);
-    let loggedBody: unknown = bounded(decoded);
-    try {
-      const parsed = JSON.parse(decoded) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        loggedBody = Object.fromEntries(
-          Object.entries(parsed).map(([name, value]) => [
-            name,
-            name === "text" && typeof value === "string"
-              ? { redacted: true, characters: value.length }
-              : value,
-          ]),
-        );
-      }
-    } catch {
-      // Invalid JSON is bounded and logged so the backend validation can be diagnosed.
-    }
     return {
       contentType,
       byteLength: body.byteLength,
-      body: loggedBody,
+      body: bounded(new TextDecoder().decode(body)),
     };
   }
   if (contentType?.includes("multipart/form-data")) {
@@ -176,26 +142,23 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       cache: "no-store",
     });
 
-    let responseBody: string | undefined;
-    if (!response.ok) {
-      try {
-        responseBody = bounded(await response.clone().text());
-      } catch (error) {
-        console.error("[api-proxy] Failed to inspect backend error response", {
-          targetUrl,
-          method: request.method,
-          status: response.status,
-          error: errorDetails(error),
-        });
-      }
+    try {
+      const responseBody = bounded(await response.clone().text());
+      console.info("[api-proxy] Backend response", {
+        targetUrl,
+        method: request.method,
+        status: response.status,
+        statusText: response.statusText,
+        responseBody,
+      });
+    } catch (error) {
+      console.error("[api-proxy] Failed to inspect backend response", {
+        targetUrl,
+        method: request.method,
+        status: response.status,
+        error: errorDetails(error),
+      });
     }
-    console.info("[api-proxy] Backend response", {
-      targetUrl,
-      method: request.method,
-      status: response.status,
-      statusText: response.statusText,
-      ...(responseBody === undefined ? {} : { responseBody }),
-    });
 
     // Preserve the backend status and unconsumed body. Transport headers are removed
     // because Node fetch has already decoded the upstream response stream.
