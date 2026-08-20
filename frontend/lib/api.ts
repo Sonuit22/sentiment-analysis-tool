@@ -61,15 +61,43 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+const TRANSIENT_PROXY_STATUSES = new Set([502, 503, 504]);
+
+async function proxyRequest<T>(input: string, init?: RequestInit): Promise<T> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      if (attempt === 0 && TRANSIENT_PROXY_STATUSES.has(response.status)) {
+        console.warn("[api-client] Retrying transient proxy response", {
+          url: input,
+          status: response.status,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        continue;
+      }
+      return await parseResponse<T>(response);
+    } catch (cause) {
+      if (attempt === 0 && cause instanceof TypeError) {
+        console.warn("[api-client] Retrying transient proxy network failure", {
+          url: input,
+          cause,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        continue;
+      }
+      throw cause;
+    }
+  }
+  throw new Error("The API proxy did not return a response.");
+}
+
 export async function predictSentiment(text: string, model: ModelId | ModelName): Promise<Prediction> {
   const backendModel = toBackendModelName(model);
-  return parseResponse<Prediction>(
-    await fetch("/api/predict", {
+  return proxyRequest<Prediction>("/api/predict", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, model: backendModel }),
-    }),
-  );
+  });
 }
 
 export async function predictAudio(file: File): Promise<Prediction> {
@@ -100,15 +128,11 @@ export async function predictAudio(file: File): Promise<Prediction> {
 }
 
 export async function fetchTraining(): Promise<TrainingPayload> {
-  return parseResponse<TrainingPayload>(
-    await fetch("/api/training-analysis", { cache: "no-store" }),
-  );
+  return proxyRequest<TrainingPayload>("/api/training-analysis", { cache: "no-store" });
 }
 
 export async function fetchModelComparison(): Promise<TrainingPayload> {
-  return parseResponse<TrainingPayload>(
-    await fetch("/api/model-comparison", { cache: "no-store" }),
-  );
+  return proxyRequest<TrainingPayload>("/api/model-comparison", { cache: "no-store" });
 }
 
 export async function uploadTrainingDataset(
@@ -123,12 +147,13 @@ export async function uploadTrainingDataset(
   body.append("test_size", String(testSize));
   body.append("random_state", String(randomState));
   return parseResponse<TrainingPayload>(
-    await fetch("/api/training-analysis/upload", { method: "POST", body }),
+    await fetch(`${DIRECT_BACKEND_API_URL}/training-analysis/upload`, {
+      method: "POST",
+      body,
+    }),
   );
 }
 
 export async function fetchBusinessInsights(): Promise<BusinessPayload> {
-  return parseResponse<BusinessPayload>(
-    await fetch("/api/business-insights", { cache: "no-store" }),
-  );
+  return proxyRequest<BusinessPayload>("/api/business-insights", { cache: "no-store" });
 }

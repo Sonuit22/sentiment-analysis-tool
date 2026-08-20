@@ -9,6 +9,7 @@ from pathlib import Path
 
 import speech_recognition as sr
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -21,6 +22,11 @@ REQUIRED_MODEL_FILES = (
     "improved_logistic.py",
     "svm.py",
 )
+MAX_DATASET_UPLOAD_BYTES = int(os.getenv("MAX_DATASET_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+MAX_AUDIO_UPLOAD_BYTES = int(os.getenv("MAX_AUDIO_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+SPEECH_RECOGNITION_TIMEOUT_SECONDS = float(
+    os.getenv("SPEECH_RECOGNITION_TIMEOUT_SECONDS", "20")
+)
 
 logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
@@ -31,11 +37,23 @@ logger = logging.getLogger("sentiment_analysis.api")
 if __package__:
     from .models import improved_logistic
     from .schemas import HealthResponse, PredictRequest, PredictResponse
-    from .service import IMPROVED_LOGISTIC_NAME, MODEL_NAMES, infer_candidate_columns, registry
+    from .service import (
+        IMPROVED_LOGISTIC_NAME,
+        MODEL_NAMES,
+        ModelRegistry,
+        infer_candidate_columns,
+        registry,
+    )
 else:
     from models import improved_logistic
     from schemas import HealthResponse, PredictRequest, PredictResponse
-    from service import IMPROVED_LOGISTIC_NAME, MODEL_NAMES, infer_candidate_columns, registry
+    from service import (
+        IMPROVED_LOGISTIC_NAME,
+        MODEL_NAMES,
+        ModelRegistry,
+        infer_candidate_columns,
+        registry,
+    )
 
 
 def validate_runtime_files() -> None:
@@ -85,26 +103,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://sentiment-analysis-tool-frontend.vercel.app",
+)
 origins = [
     value.strip()
-    for value in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    for value in os.getenv(
+        "ALLOWED_ORIGINS",
+        ",".join(DEFAULT_ALLOWED_ORIGINS),
+    ).split(",")
     if value.strip()
 ]
-vercel_origin_regex = r"https://(?:[a-z0-9-]+\.)*vercel\.app"
-configured_origin_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
-origin_regex = (
-    rf"(?:{vercel_origin_regex})|(?:{configured_origin_regex})"
-    if configured_origin_regex
-    else vercel_origin_regex
-)
-logger.info("CORS origins=%s origin_regex=%s", origins, origin_regex)
+logger.info("CORS origins=%s", origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=origin_regex,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type"],
 )
 
 
@@ -170,24 +188,41 @@ async def training_analysis_upload(
     random_state: int = Form(42),
 ) -> dict:
     try:
-        content = await file.read()
+        content = await file.read(MAX_DATASET_UPLOAD_BYTES + 1)
         if not content:
             raise ValueError("The uploaded dataset is empty.")
-        dataframe = registry.load_uploaded_dataset(file.filename or "dataset.csv", content)
-        inferred_text, inferred_label = infer_candidate_columns(dataframe)
-        selected_text = text_column or inferred_text
-        selected_label = label_column or inferred_label
-        if not selected_text or not selected_label:
-            raise ValueError("Could not infer text and label columns.")
-        selected_models = [name.strip() for name in models.split(",") if name.strip()]
-        return registry.train(
-            dataframe,
-            selected_text,
-            selected_label,
-            selected_models,
-            test_size,
-            random_state,
-        )
+        if len(content) > MAX_DATASET_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="The uploaded dataset exceeds the 10 MB limit.",
+            )
+
+        def run_experiment() -> dict:
+            dataframe = registry.load_uploaded_dataset(
+                file.filename or "dataset.csv",
+                content,
+            )
+            inferred_text, inferred_label = infer_candidate_columns(dataframe)
+            selected_text = text_column or inferred_text
+            selected_label = label_column or inferred_label
+            if not selected_text or not selected_label:
+                raise ValueError("Could not infer text and label columns.")
+            selected_models = [
+                name.strip() for name in models.split(",") if name.strip()
+            ]
+            experiment = ModelRegistry()
+            return experiment.train(
+                dataframe,
+                selected_text,
+                selected_label,
+                selected_models,
+                test_size,
+                random_state,
+            )
+
+        return await run_in_threadpool(run_experiment)
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
@@ -210,17 +245,27 @@ async def predict_audio(file: UploadFile = File(...)) -> dict:
     if not (file.filename or "").lower().endswith(".wav"):
         raise HTTPException(status_code=422, detail="Upload a WAV audio file.")
     try:
-        content = await file.read()
+        content = await file.read(MAX_AUDIO_UPLOAD_BYTES + 1)
         if not content:
             raise ValueError("The uploaded audio file is empty.")
+        if len(content) > MAX_AUDIO_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="The uploaded WAV file exceeds the 25 MB limit.",
+            )
         temp_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as audio_file:
                 audio_file.write(content)
                 temp_path = audio_file.name
-            recognizer = sr.Recognizer()
-            with sr.AudioFile(temp_path) as source:
-                transcript = recognizer.recognize_google(recognizer.record(source))
+
+            def transcribe() -> str:
+                recognizer = sr.Recognizer()
+                recognizer.operation_timeout = SPEECH_RECOGNITION_TIMEOUT_SECONDS
+                with sr.AudioFile(temp_path) as source:
+                    return recognizer.recognize_google(recognizer.record(source))
+
+            transcript = await run_in_threadpool(transcribe)
         finally:
             if temp_path:
                 Path(temp_path).unlink(missing_ok=True)
@@ -247,6 +292,8 @@ async def predict_audio(file: UploadFile = File(...)) -> dict:
             "ambiguous": ambiguous,
             "sentiment_scores": scores,
         }
+    except HTTPException:
+        raise
     except sr.UnknownValueError as exc:
         logger.warning("Audio transcription could not understand the uploaded file")
         raise HTTPException(status_code=422, detail="Speech could not be understood.") from exc

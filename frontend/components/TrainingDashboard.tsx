@@ -57,6 +57,11 @@ export function TrainingDashboard() {
 
 export function TrainingResults({ data }: { data: TrainingPayload }) {
   const [activeModel, setActiveModel] = useState<ModelName>(data.leaderboard[0]?.model ?? "Improved Logistic Regression");
+  useEffect(() => {
+    if (!data.evaluation.some((item) => item.model === activeModel)) {
+      setActiveModel(data.evaluation[0]?.model ?? "Improved Logistic Regression");
+    }
+  }, [activeModel, data.evaluation]);
   const evaluation = useMemo(() => data.evaluation.find((item) => item.model === activeModel) ?? data.evaluation[0], [activeModel, data]);
   return (
     <>

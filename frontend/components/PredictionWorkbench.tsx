@@ -1,6 +1,6 @@
 "use client";
 
-import { AudioLines, Gauge, Sparkles, Timer, Waves } from "lucide-react";
+import { AudioLines, Gauge, Sparkles, Waves } from "lucide-react";
 import { useState } from "react";
 import { predictAudio, predictSentiment } from "@/lib/api";
 import type { ModelId, Prediction } from "@/lib/types";

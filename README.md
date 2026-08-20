@@ -24,11 +24,11 @@ frontend/  Next.js 15 App Router, TypeScript, Recharts, responsive UI
 backend/   FastAPI, original model modules, evaluation and insight services
 ```
 
-The frontend uses a same-origin Next.js proxy under `/api/*`. Set `BACKEND_API_URL` on the frontend deployment to the FastAPI deployment URL.
+Text prediction and read-only research requests use the same-origin Next.js proxy under `/api/*`. Audio and dataset uploads go directly to Render to avoid Vercel's serverless request-body limit. Set both frontend backend URL variables described below.
 
 ## Local development
 
-Requirements: Node.js 20.9+, npm, and Python 3.11?3.13.
+Requirements: Node.js 20.19+, npm, and Python 3.11-3.13.
 
 ```powershell
 python -m venv .venv
@@ -57,24 +57,43 @@ Open `http://localhost:3000`. FastAPI documentation is available locally at `htt
 - `GET /model-comparison` - complete leaderboard and evaluation payload
 - `GET /business-insights` - sentiment distribution, keywords, and summary
 
-## Vercel deployment
+## Production deployment
 
-Vercel recommends deploying monorepo applications as separate related projects.
+### Render backend
 
-1. Import this GitHub repository as the backend project and set its Root Directory to `backend`.
-2. Deploy the FastAPI project. Its `app.py` entrypoint and `requirements.txt` are detected by the Python runtime.
-3. Import the same repository as the frontend project. Keep the repository root selected; the root `vercel.json` builds `frontend/.next`.
-4. Add `BACKEND_API_URL=https://YOUR-BACKEND.vercel.app` to the frontend project.
-5. Add the frontend production and preview origins to backend `ALLOWED_ORIGINS` if calling the backend directly. The built-in proxy normally keeps browser requests same-origin.
+Configure the existing Render web service with:
 
-The Vercel Python runtime has a function bundle limit and cold starts. scikit-learn and pandas fit within the documented maximum in typical builds, but verify the final deployment bundle. Each cold backend instance deterministically initializes the same original model training workflow because the source project contains no persisted trained classifier artifact.
+- Root Directory: `backend`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn app:app --host 0.0.0.0 --port $PORT`
+- Health Check Path: `/health`
+- `ALLOWED_ORIGINS`: the exact comma-separated origins from `backend/.env.example`
+
+Every process automatically initializes all four deterministic model pipelines during startup and fails startup if the fixed audio model cannot load. Uploaded training experiments use an isolated registry and never replace the production inference models.
+
+### Vercel frontend
+
+Import this repository with:
+
+- Root Directory: `frontend`
+- Framework Preset: Next.js
+- Build Command: `npm run build`
+- Output Directory: leave unset
+- Install Command: `npm install`
+
+Set both `BACKEND_API_URL` and `NEXT_PUBLIC_BACKEND_API_URL` to `https://sentiment-analysis-tool-a8nd.onrender.com`. The public production frontend is `https://sentiment-analysis-tool-frontend.vercel.app`.
 
 ## Environment variables
 
 | Variable | Project | Purpose |
 | --- | --- | --- |
 | `BACKEND_API_URL` | Frontend | FastAPI base URL |
-| `ALLOWED_ORIGINS` | Backend | Comma-separated direct browser origins |
+| `NEXT_PUBLIC_BACKEND_API_URL` | Frontend | FastAPI base URL for direct audio uploads |
+| `ALLOWED_ORIGINS` | Backend | Exact comma-separated direct browser origins |
+| `LOG_LEVEL` | Backend | Backend logging level; defaults to `INFO` |
+| `MAX_DATASET_UPLOAD_BYTES` | Backend | Dataset upload limit; defaults to 10 MB |
+| `MAX_AUDIO_UPLOAD_BYTES` | Backend | WAV upload limit; defaults to 25 MB |
+| `SPEECH_RECOGNITION_TIMEOUT_SECONDS` | Backend | Google transcription timeout; defaults to 20 seconds |
 
 No secret is required for core text analysis. Google Speech Recognition is external and may be unavailable in restricted environments.
 
@@ -82,7 +101,7 @@ No secret is required for core text analysis. Google Speech Recognition is exter
 
 Files under `backend/models/` preserve the original training, preprocessing, and prediction logic. Only import paths were made package-safe. No classifier hyperparameters, feature extraction choices, prediction functions, or audio post-processing rules were changed.
 
-The original repository did not include persisted trained classifier files. It included an unused Keras tokenizer that is not referenced by the classical models. The production service therefore caches the same deterministic bundled-data experiment per warm instance and still supports explicit upload-driven experiments.
+The original repository did not include persisted trained classifier files. It included an unused Keras tokenizer that is not referenced by the classical models. Each backend process automatically builds the same deterministic bundled-data inference pipelines at startup; prediction never depends on visiting Training Analysis. Uploaded experiments are isolated from these inference models.
 
 ## Screenshots
 

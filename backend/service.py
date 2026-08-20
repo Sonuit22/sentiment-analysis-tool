@@ -523,13 +523,21 @@ class ModelRegistry:
     def load_uploaded_dataset(self, filename: str, content: bytes) -> pd.DataFrame:
         suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
         source = BytesIO(content)
-        if suffix == "csv":
-            return pd.read_csv(source)
-        if suffix == "json":
-            return pd.read_json(source)
-        if suffix in {"xlsx", "xls"}:
-            return pd.read_excel(source)
-        raise ValueError("Unsupported file format. Upload CSV, JSON, XLSX, or XLS.")
+        try:
+            if suffix == "csv":
+                return pd.read_csv(source)
+            if suffix == "json":
+                return pd.read_json(source)
+            if suffix in {"xlsx", "xls"}:
+                return pd.read_excel(source)
+            raise ValueError("Unsupported file format. Upload CSV, JSON, XLSX, or XLS.")
+        except ValueError:
+            raise
+        except Exception as exc:
+            format_name = suffix.upper() or "UNKNOWN"
+            raise ValueError(
+                f"Could not parse the uploaded {format_name} dataset: {exc}"
+            ) from exc
 
 
 registry = ModelRegistry()
