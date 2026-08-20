@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
-  outputFileTracingRoot: process.cwd(),
+  outputFileTracingRoot: path.join(process.cwd(), ".."),
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts"],
   },
