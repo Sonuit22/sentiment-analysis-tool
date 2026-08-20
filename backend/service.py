@@ -267,6 +267,8 @@ class ModelRegistry:
         self._dataset = build_demo_product_dataset()
         self._text_col = "review"
         self._label_col = "sentiment"
+        self._test_size = 0.2
+        self._random_state = 42
 
     @property
     def ready(self) -> bool:
@@ -291,6 +293,39 @@ class ModelRegistry:
                 except Exception:
                     logger.exception("Model initialization failed")
                     raise
+
+    def ensure_model_ready(self, model_name: str) -> Any:
+        """Return a model, rebuilding only that pipeline if training excluded it."""
+        if model_name not in MODEL_NAMES:
+            raise ValueError(f"Unknown model selection: {model_name}")
+        model = self._models.get(model_name)
+        if model is not None:
+            return model
+        with self._lock:
+            model = self._models.get(model_name)
+            if model is not None:
+                return model
+            logger.info(
+                "Restoring missing runtime model: %s (rows=%d)",
+                model_name,
+                len(self._dataset),
+            )
+            working = prepare_training_data(
+                self._dataset,
+                self._text_col,
+                self._label_col,
+            )
+            X_train, _, y_train, _ = train_test_split(
+                working[self._text_col],
+                working[self._label_col],
+                test_size=self._test_size,
+                random_state=self._random_state,
+                stratify=working[self._label_col],
+            )
+            model = build_models()[model_name].train(X_train, y_train)
+            self._models[model_name] = model
+            logger.info("Runtime model restored: %s", model_name)
+            return model
 
     def train(
         self,
@@ -360,6 +395,8 @@ class ModelRegistry:
         self._dataset = df.copy()
         self._text_col = text_col
         self._label_col = label_col
+        self._test_size = test_size
+        self._random_state = random_state
         logger.info("Training completed; %d models are ready", len(models))
         return self.training_payload(df, text_col, label_col, ensure=False)
 

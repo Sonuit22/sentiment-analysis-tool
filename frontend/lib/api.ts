@@ -92,7 +92,7 @@ export async function predictAudio(file: File): Promise<Prediction> {
     });
     if (cause instanceof TypeError) {
       throw new Error(
-        "The audio service could not be reached. Verify that the Render backend allows this Vercel site in its CORS settings.",
+        "The audio service could not be reached. Check the backend deployment and your network connection.",
       );
     }
     throw cause;

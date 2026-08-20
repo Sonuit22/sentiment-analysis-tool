@@ -200,7 +200,7 @@ async def predict_audio(file: UploadFile = File(...)) -> dict:
     if not (file.filename or "").lower().endswith(".wav"):
         raise HTTPException(status_code=422, detail="Upload a WAV audio file.")
     try:
-        registry.ensure_ready()
+        model = registry.ensure_model_ready(IMPROVED_LOGISTIC_NAME)
         content = await file.read()
         if not content:
             raise ValueError("The uploaded audio file is empty.")
@@ -215,9 +215,6 @@ async def predict_audio(file: UploadFile = File(...)) -> dict:
         finally:
             if temp_path:
                 Path(temp_path).unlink(missing_ok=True)
-        model = registry._models.get(IMPROVED_LOGISTIC_NAME)
-        if model is None:
-            raise ValueError("Improved Logistic Regression is not available.")
         original = " ".join(transcript.split())
         cleaned = improved_logistic.clean_audio_transcript(original)
         processed = improved_logistic.build_audio_debug_text(cleaned)

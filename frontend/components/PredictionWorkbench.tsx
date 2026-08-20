@@ -66,7 +66,7 @@ export function PredictionWorkbench() {
             <div className="field">
               <label htmlFor="audio">WAV recording</label>
               <input id="audio" className="input" type="file" accept=".wav,audio/wav" onChange={(event) => setAudio(event.target.files?.[0] ?? null)} />
-              <small className="muted">Audio is transcribed through Google Speech Recognition, then analyzed by Improved Logistic Regression.</small>
+              <small className="muted">Audio uses a fixed model: Improved Logistic Regression. The WAV recording is transcribed through Google Speech Recognition before analysis.</small>
             </div>
           )}
           {error && <ErrorState message={error} />}
