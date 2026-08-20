@@ -274,6 +274,13 @@ class ModelRegistry:
     def ready(self) -> bool:
         return bool(self._models)
 
+    @property
+    def loaded_model_names(self) -> list[str]:
+        return [name for name in MODEL_NAMES if name in self._models]
+
+    def has_model(self, model_name: str) -> bool:
+        return model_name in self._models
+
     def ensure_ready(self) -> None:
         if self.ready:
             logger.debug("Model registry already initialized")
@@ -406,13 +413,8 @@ class ModelRegistry:
             model_name,
             len(str(text)),
         )
-        self.ensure_ready()
-        if model_name not in self._models:
-            raise ValueError(
-                f"{model_name} is not available. Run training analysis with it selected."
-            )
+        model = self.ensure_model_ready(model_name)
         started = time.perf_counter()
-        model = self._models[model_name]
         sentiment = str(build_models()[model_name].predict(model, [str(text)])[0]).lower()
         probabilities = _probabilities(model, str(text))
         elapsed_ms = (time.perf_counter() - started) * 1000

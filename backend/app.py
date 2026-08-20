@@ -60,10 +60,20 @@ async def lifespan(_: FastAPI):
     logger.info("Project root: %s", PROJECT_ROOT)
     try:
         validate_runtime_files()
+        registry.ensure_ready()
+        if not registry.has_model(IMPROVED_LOGISTIC_NAME):
+            raise RuntimeError(
+                f"Required audio model failed to load: {IMPROVED_LOGISTIC_NAME}"
+            )
     except Exception:
         logger.critical("Backend startup validation failed:\n%s", traceback.format_exc())
         raise
-    logger.info("API startup complete; models_ready=%s", registry.ready)
+    logger.info(
+        "API startup complete; models_ready=%s loaded_models=%s audio_model=%s",
+        registry.ready,
+        registry.loaded_model_names,
+        IMPROVED_LOGISTIC_NAME,
+    )
     yield
     logger.info("Sentiment Analysis Tool API stopped")
 
@@ -200,7 +210,6 @@ async def predict_audio(file: UploadFile = File(...)) -> dict:
     if not (file.filename or "").lower().endswith(".wav"):
         raise HTTPException(status_code=422, detail="Upload a WAV audio file.")
     try:
-        model = registry.ensure_model_ready(IMPROVED_LOGISTIC_NAME)
         content = await file.read()
         if not content:
             raise ValueError("The uploaded audio file is empty.")
@@ -219,8 +228,8 @@ async def predict_audio(file: UploadFile = File(...)) -> dict:
         cleaned = improved_logistic.clean_audio_transcript(original)
         processed = improved_logistic.build_audio_debug_text(cleaned)
         scores = improved_logistic.get_audio_sentiment_scores(cleaned, processed)
-        predicted = str(improved_logistic.predict(model, [cleaned])[0]).lower()
         prediction = registry.predict(cleaned, IMPROVED_LOGISTIC_NAME)
+        predicted = prediction["sentiment"]
         final_label, final_confidence, ambiguous = improved_logistic.postprocess_audio_prediction(
             cleaned_transcript=cleaned,
             processed_text=processed,
