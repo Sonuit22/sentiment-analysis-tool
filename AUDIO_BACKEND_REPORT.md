@@ -41,3 +41,11 @@ Audio intentionally supports Improved Logistic Regression only. Its module conta
 - `POST /predict/audio` restored the same model and returned HTTP 200 with sentiment, confidence, probabilities, inference time, and `model_used: Improved Logistic Regression`.
 - A non-WAV multipart request returned HTTP 422 with `{"detail":"Upload a WAV audio file."}`.
 - Python compilation and `git diff --check` completed successfully.
+
+## Deployment verification status
+
+The functional fix was pushed to GitHub `main` as revision `09c5e38`. The public Render service was tested repeatedly afterward with a generated spoken WAV. It continued returning the validation string removed by this revision:
+
+    {"detail":"Improved Logistic Regression is not available."}
+
+This proves Render was still serving the preceding revision during verification. The latest `main` revision must finish deploying—or be selected with **Manual Deploy → Deploy latest commit** if automatic deployment is disabled—before the public endpoint can reflect the passing local result.
