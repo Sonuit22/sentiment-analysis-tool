@@ -80,10 +80,13 @@ origins = [
     for value in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     if value.strip()
 ]
-origin_regex = os.getenv(
-    "ALLOWED_ORIGIN_REGEX",
-    r"https://(?:[a-z0-9-]+\.)*vercel\.app",
-).strip() or None
+vercel_origin_regex = r"https://(?:[a-z0-9-]+\.)*vercel\.app"
+configured_origin_regex = os.getenv("ALLOWED_ORIGIN_REGEX", "").strip()
+origin_regex = (
+    rf"(?:{vercel_origin_regex})|(?:{configured_origin_regex})"
+    if configured_origin_regex
+    else vercel_origin_regex
+)
 logger.info("CORS origins=%s origin_regex=%s", origins, origin_regex)
 app.add_middleware(
     CORSMiddleware,
