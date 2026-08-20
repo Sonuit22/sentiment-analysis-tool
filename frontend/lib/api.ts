@@ -75,12 +75,28 @@ export async function predictSentiment(text: string, model: ModelId | ModelName)
 export async function predictAudio(file: File): Promise<Prediction> {
   const body = new FormData();
   body.append("file", file);
-  return parseResponse<Prediction>(
-    await fetch(`${DIRECT_BACKEND_API_URL}/predict/audio`, {
-      method: "POST",
-      body,
-    }),
-  );
+  const endpoint = `${DIRECT_BACKEND_API_URL}/predict/audio`;
+  try {
+    return parseResponse<Prediction>(
+      await fetch(endpoint, {
+        method: "POST",
+        body,
+      }),
+    );
+  } catch (cause) {
+    console.error("[api-client] Audio request could not reach the backend", {
+      endpoint,
+      filename: file.name,
+      size: file.size,
+      cause,
+    });
+    if (cause instanceof TypeError) {
+      throw new Error(
+        "The audio service could not be reached. Verify that the Render backend allows this Vercel site in its CORS settings.",
+      );
+    }
+    throw cause;
+  }
 }
 
 export async function fetchTraining(): Promise<TrainingPayload> {

@@ -74,3 +74,16 @@ Redeploy both services:
 2. Redeploy Vercel so the browser bundle uses the direct audio URL.
 
 Set `NEXT_PUBLIC_BACKEND_API_URL` in Vercel's Production environment to the Render base URL. The built-in default uses the same URL, but the explicit variable makes the deployment contract visible.
+
+## Follow-up: browser `Failed to fetch`
+
+The reported browser failure is a CORS rejection from the deployed Render service, not an audio-format or prediction error. A live preflight request on 20 August 2026 returned:
+
+    HTTP/1.1 400 Bad Request
+    Disallowed CORS origin
+
+The response did not contain `Access-Control-Allow-Origin`, so the browser hid the backend response and exposed only `TypeError: Failed to fetch`. The Vercel runtime log entry for `/api/predict` is unrelated to this direct audio flow; direct audio requests do not pass through a Vercel API route.
+
+The additive Vercel-origin CORS rule is present on `origin/main`, but the live response proves Render has not activated that backend revision. Redeploy the latest `main` commit (`f1ed53f`) on Render and confirm the service uses the repository's `backend` root and `uvicorn app:app --host 0.0.0.0 --port $PORT` start command. If auto-deploy is disabled, trigger a manual deploy of the latest commit.
+
+After deployment, verify the Render startup log contains a CORS line whose `origin_regex` includes `vercel\\.app`. The frontend now replaces the browser's opaque `Failed to fetch` text with an actionable CORS/backend availability message while preserving backend `detail` messages whenever an HTTP response is available.
