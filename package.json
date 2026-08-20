@@ -2,12 +2,11 @@
   "name": "sentiment-analysis-tool",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["frontend"],
   "scripts": {
-    "dev": "npm run dev --workspace frontend",
-    "build": "npm run build --workspace frontend",
-    "start": "npm run start --workspace frontend",
-    "lint": "npm run lint --workspace frontend"
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run start",
+    "lint": "npm --prefix frontend run lint"
   },
   "engines": {
     "node": ">=20.19"

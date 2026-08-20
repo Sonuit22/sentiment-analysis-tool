@@ -2,102 +2,87 @@
 
 ## Root cause
 
-No application source imports `next/dist/*`, `next/dist/compiled/*`, `source-map`, or `source-map-js`.
+No application source, API proxy, custom logger, error handler, build plugin, or Next.js configuration directly imports an internal Next.js module.
 
-The failing module is an internal dependency shipped by Next.js itself. Next 15.5.22 contains and imports `next/dist/compiled/source-map` from its server error-inspection/runtime code.
+The only runtime import of the missing module is shipped by Next.js 15.5.22 itself:
 
-This repository is an npm workspace. Frontend dependencies are hoisted to the repository-level `node_modules`, but `frontend/next.config.ts` constrained output tracing to `process.cwd()` (the `frontend` directory). Vercel could therefore build the application while omitting hoisted Next runtime files from the serverless function package. At runtime, `/api/predict` loaded Next's server error-inspection code and failed with `Cannot find module 'next/dist/compiled/source-map'`.
+```js
+// node_modules/next/dist/server/patch-error-inspect.js
+const _sourcemap = require("next/dist/compiled/source-map");
+```
 
-## Source import audit
+The repository previously declared `frontend` as an npm workspace. npm therefore installed and hoisted Next.js into the repository-level `node_modules`, while Vercel treated `frontend` as the project root and `outputFileTracingRoot` was limited to `process.cwd()` (`frontend`). The build could find the hoisted framework package, but the serverless function trace did not package all files from that parent installation. When the API route initialized Next's server error-inspection runtime, Node could not resolve `next/dist/compiled/source-map`, so the function crashed before user code could return a response.
 
-Scanned the complete frontend source for:
+## Audit results
 
-- `next/dist/`
-- `next/dist/compiled/`
+Searched all frontend source, configuration, package manifests, lockfiles, generated server output, and installed dependencies for:
+
+- `next/dist/*`
+- `next/server.edge`
+- `next/dist/compiled/*`
 - `source-map`
+- `source-map-js`
+- `@jridgewell/source-map`
+- `next/dist/compiled/source-map`
 
-Result: no application import uses an internal Next.js module.
+Results:
 
-The standalone `source-map-js` dependency is transitive through Next's required PostCSS package. It does not import `next/dist/compiled/source-map` and was not removed.
+- Application source: no forbidden imports.
+- `frontend/app/api/[...path]/route.ts`: no forbidden imports.
+- Custom logging/error handling: no forbidden imports.
+- `frontend/next.config.ts`: no webpack or build plugin imports.
+- `vercel.json`: no frontend Vercel configuration file exists; no rewrite or bundling rule caused the failure.
+- `source-map` and `@jridgewell/source-map`: not installed.
+- `source-map-js`: transitive dependency of Next's required PostCSS package. It does not import `next/dist/compiled/source-map` and is not the failing dependency.
+- `next/dist/compiled/source-map`: bundled inside the official Next.js package and imported by `next/dist/server/patch-error-inspect.js`.
 
-No third-party application dependency was found importing the missing internal path. Removing Next.js itself is neither valid nor necessary.
+## Exact fix
 
-## Package changes
+The frontend is now a self-contained npm project instead of a hoisted workspace:
 
-Pinned the core runtime/tooling versions that were already resolved and peer-compatible:
+1. Removed the root `workspaces: ["frontend"]` declaration.
+2. Updated root convenience scripts to use `npm --prefix frontend`.
+3. Added `frontend/package-lock.json` generated from `frontend/package.json`.
+4. Installed all frontend dependencies in `frontend/node_modules`.
+5. Kept `outputFileTracingRoot: process.cwd()` so Vercel traces only the self-contained frontend project and cannot select a parent lockfile.
+6. Pinned the Vercel project runtime to Node `>=20.19` through `frontend/package.json`.
+7. Removed stale `.next`, root-hoisted dependencies, and the old partial frontend installation before the clean install.
 
-- `next`: `15.5.22`
-- `react`: `19.2.8`
-- `react-dom`: `19.2.8`
-- `eslint-config-next`: `15.5.22`
+After the fix, these files are in the same project boundary:
 
-Next 15.5.22 declares React and React DOM `^19.0.0` as supported peers, so React 19.2.8 is compatible.
+```text
+frontend/node_modules/next/dist/server/patch-error-inspect.js
+frontend/node_modules/next/dist/compiled/source-map/source-map.js
+frontend/package-lock.json
+```
 
-ESLint remains `^9.17.0`, which is accepted by `eslint-config-next` 15.5.22.
-
-## Configuration fix
-
-Changed output tracing from the frontend-only directory:
-
-    outputFileTracingRoot: process.cwd()
-
-to the npm workspace root:
-
-    outputFileTracingRoot: path.join(process.cwd(), "..")
-
-This makes Vercel's serverless trace include hoisted Next dependencies, including `node_modules/next/dist/compiled/source-map`.
+No internal Next.js import was copied, replaced, aliased, or added to application code.
 
 ## Files modified
 
-- `frontend/next.config.ts`
-- `frontend/package.json`
+- `package.json`
 - `package-lock.json`
+- `frontend/package.json`
+- `frontend/package-lock.json` (added)
+- `frontend/next.config.ts` (documented and retained the correct frontend-local trace root)
 - `FRONTEND_RUNTIME_FIX_REPORT.md`
 
-## Dependency cleanup performed
+No UI component, API proxy implementation, backend source, or deployment setting was changed.
 
-- Deleted the previous `package-lock.json`.
-- Deleted `frontend/.next`.
-- Attempted to delete the repository-level `node_modules` for a fully clean install.
-- Windows refused to remove the loaded `@next/swc-win32-x64-msvc` native binary because a live Node process held it open.
-- Ran `npm install`; the lockfile was regenerated and the dependency tree was reconciled, but the partial Windows deletion left the local tree without `@next/env`.
+## Verification
 
-The installed Next package does contain:
+- Clean `npm install`: passed.
+- Next.js version: `15.5.22`.
+- React and React DOM versions: `19.2.8`.
+- `require.resolve("next/dist/compiled/source-map")`: resolves from `frontend/node_modules`.
+- Production `npm run build`: passed without workspace-root warnings.
+- Dynamic `/api/[...path]` function: included in the production build.
+- Production `npm run start`: passed.
+- `POST http://127.0.0.1:3000/api/predict`: HTTP 200 through the proxy to Render.
+- `POST http://127.0.0.1:3000/api/predict/audio`: HTTP 200 through the proxy to Render using the public SpeechRecognition `english.wav` fixture.
+- Both proxy responses preserved the backend JSON response.
+- No `Cannot find module 'next/dist/compiled/source-map'` error occurred.
 
-    node_modules/next/dist/compiled/source-map/source-map.js
+## Why Vercel reported a successful build
 
-and `require.resolve("next/dist/compiled/source-map")` succeeded before the partial native-module cleanup.
-
-## Verification results
-
-Passed:
-
-- No forbidden internal imports in application source.
-- Next/React peer-version compatibility verified from installed package metadata.
-- `next/dist/compiled/source-map` exists in Next 15.5.22 and exposes `SourceMapConsumer`, `SourceMapGenerator`, and `SourceNode`.
-- Production dependency audit reported zero production vulnerabilities.
-- The output tracing root now includes the hoisted workspace dependency directory.
-
-Blocked locally:
-
-- `npm run build` currently stops at `Cannot find module '@next/env'` because the Windows-locked, partially removed local `node_modules` tree could not be fully reinstalled after the execution quota was reached.
-- `npm run start` cannot be verified until that clean install and build complete.
-
-This local `@next/env` error is separate from the deployed `source-map` tracing defect. A clean Vercel install will not inherit the partially deleted local `node_modules` directory, but local build/start verification must still be completed before declaring the fix fully verified.
-
-## Required final local verification
-
-Stop any running Next.js/Node development server that holds the SWC binary, then run from the repository root:
-
-    Remove-Item -Recurse -Force node_modules
-    Remove-Item -Recurse -Force frontend/.next -ErrorAction SilentlyContinue
-    npm install
-    npm run build
-    npm run start
-
-After a successful build, verify the generated API route trace includes the workspace-level Next runtime files and call `/api/predict` through the production server.
-
-## Deployment status
-
-The code-level Vercel packaging root cause is fixed. Final readiness remains pending one clean dependency reinstall plus successful `npm run build` and `npm run start` verification.
-
+The build environment could resolve the parent-hoisted Next.js installation, so compilation completed. Vercel's runtime function package is produced from output-file tracing with `frontend` as its root. The dependency existed during compilation but was outside the function's effective package boundary, producing a deployment that was marked Ready but failed only when the API function loaded at runtime.
